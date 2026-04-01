@@ -14,16 +14,13 @@ from langchain_core.runnables.graph import MermaidDrawMethod
 from langchain_core.messages import HumanMessage,SystemMessage
 
 from langgraph.prebuilt import ToolNode, tools_condition
-
+import json
 load_dotenv()
 
 vectorstrore = FAISS.load_local("vectorstore", embeddings, allow_dangerous_deserialization=True)
 retriver = vectorstrore.as_retriever(search_kwargs={"k":4})
 llm = ChatGroq(model=os.getenv("GROQ_MODEL"), temperature=0)     
-prompt = ChatPromptTemplate.from_template(
-    "Voce é um assitente de uma loja de eletronicos LMSTECH. Responda de forma educada"
-    "Contexto: {context}\nPergunta:{question}"
-)
+
 
 def format_chunks(chunks):
     return"\n\n".join(chunk.page_content  for chunk in chunks)
@@ -39,10 +36,30 @@ def buscar_rag(query: str) -> str:
 class Estado(TypedDict):
     messages: Annotated[list, add_messages]
 
-def chamar_llm(estado: Estado) -> Estado:
-    return {"messages": [llm.invoke(estado["messages"])]}
+with open("clientes.json", 'r', encoding="utf-8") as arquivo:
+        clientes = json.load(arquivo)
 
-ferramentas = [buscar_rag]
+@tool
+def buscar_saldo_por_nome(parte_nome):
+    """Busca saldo de pontos de um cliente por parte do nome (case-insensitive)."""
+  
+    
+    parte_nome = parte_nome.lower()
+
+    resultados = [
+        {
+            "nome": cliente["nome"],
+            "numeroCadastro": cliente["numeroCadastro"],
+            "saldoPontos": cliente["saldoPontos"]
+        }
+        for cliente in clientes
+        if parte_nome in cliente["nome"].lower()
+    ]
+
+    return resultados
+    
+
+ferramentas = [buscar_rag, buscar_saldo_por_nome]
 
 llm_com_ferramentas = llm.bind_tools(ferramentas)
 
@@ -67,8 +84,9 @@ img_data = graph.get_graph().draw_mermaid_png(
 with open("graph.png", "wb") as f:
     f.write(img_data)
 
+SYSTEM_PROMPT = "Você é um assistente da loja LMSTECH. Responda de forma educada e curta, com o mínimo de informações possível."
 estado_global = Estado({"messages": [
-    SystemMessage(content="Você é um assistente da loja LMSTECH. Responda de forma educada.")
+    SystemMessage(content=SYSTEM_PROMPT )
 ]})
 
 def chamar_grafo(texto):
@@ -82,3 +100,4 @@ if __name__ == "__main__":
     print(chamar_grafo("Meu nome é luiz"))
     print(chamar_grafo("quais produtos tem?"))
     print(chamar_grafo("qual é meu nome ?"))
+    print(chamar_grafo("quantos pontos eu tenho ?"))
